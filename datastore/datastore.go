@@ -164,6 +164,9 @@ type ErrFieldMismatch struct {
 	StructType reflect.Type
 	FieldName  string
 	Reason     string
+        // Populated with all unknown properties when Reason is
+        // ReasonNoSuchStructField
+	Unknown    []Property
 }
 
 func (e *ErrFieldMismatch) Error() string {

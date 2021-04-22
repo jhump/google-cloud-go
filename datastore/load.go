@@ -25,6 +25,10 @@ import (
 	pb "google.golang.org/genproto/googleapis/datastore/v1"
 )
 
+const (
+	ReasonNoSuchStructField = "no such struct field"
+)
+
 var (
 	typeOfByteSlice     = reflect.TypeOf([]byte(nil))
 	typeOfTime          = reflect.TypeOf(time.Time{})
@@ -119,12 +123,12 @@ func (l *propertyLoader) loadOneElement(codec fields.List, structValue reflect.V
 		// If we never found a matching field in the codec, return
 		// error message.
 		if field == nil {
-			return "no such struct field"
+			return ReasonNoSuchStructField
 		}
 
 		v = initField(structValue, field.Index)
 		if !v.IsValid() {
-			return "no such struct field"
+			return ReasonNoSuchStructField
 		}
 		if !v.CanSet() {
 			return "cannot set struct field"
@@ -480,6 +484,7 @@ func loadEntityToStruct(dst interface{}, ent *Entity) error {
 func (s structPLS) Load(props []Property) error {
 	var fieldName, errReason string
 	var l propertyLoader
+	var unknown []Property
 
 	prev := make(map[string]struct{})
 	for _, p := range props {
@@ -487,7 +492,11 @@ func (s structPLS) Load(props []Property) error {
 			// We don't return early, as we try to load as many properties as possible.
 			// It is valid to load an entity into a struct that cannot fully represent it.
 			// That case returns an error, but the caller is free to ignore it.
-			fieldName, errReason = p.Name, errStr
+			if errStr == ReasonNoSuchStructField {
+				unknown = append(unknown, p)
+			} else {
+				fieldName, errReason = p.Name, errStr
+			}
 		}
 	}
 	if errReason != "" {
@@ -495,6 +504,17 @@ func (s structPLS) Load(props []Property) error {
 			StructType: s.v.Type(),
 			FieldName:  fieldName,
 			Reason:     errReason,
+		}
+	}
+	// if the only errors were one or more unrecognized properties,
+	// provide info for all such properties in the error
+	if len(unknown) > 0 {
+		return &ErrFieldMismatch{
+			StructType: s.v.Type(),
+			// for backwards compatibility, pick one for this field
+			FieldName:  unknown[0].Name,
+			Reason:     ReasonNoSuchStructField,
+			Unknown:    unknown,
 		}
 	}
 	return nil
